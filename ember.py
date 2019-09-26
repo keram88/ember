@@ -1,13 +1,18 @@
 import tkinter
 import tkinter.font
+import dukpy
 from network import parse_url, request
 from html import lex, parse
 from style import style, parse_css
 from layout import BlockLayout, is_checkbox, is_checked
 from html import ElementNode
+from timing import Timer
 
 with open('default.css', 'r') as f:
     DEFAULT_STYLE = f.read()
+
+with open('runtime.js', 'r') as f:
+    DEFAULT_JS = f.read()
 
 class Page:
     def __init__(self):
@@ -54,6 +59,14 @@ def find_inputs(elt, out):
         find_inputs(child, out)
     return out
 
+def find_selected(node, sel, out):
+    if not isinstance(node, ElementNode): return
+    if sel.matches(node):
+        out.append(node)
+    for child in node.children:
+        find_selected(child, sel, out)
+    return out
+
 def relative_url(url, current):
     url = url.replace('"', '').replace("'", '')
 
@@ -66,6 +79,15 @@ def relative_url(url, current):
         return 'http://' + "/".join(current.split("/")) + url
     else:
         return 'http://' + current.rsplit("/", 1)[0] + "/" + url
+
+def find_scripts(node, out):
+    if not isinstance(node, ElementNode): return
+    if node.tag == "script" and \
+       "src" in node.attributes:
+        out.append(node.attributes["src"])
+    for child in node.children:
+        find_scripts(child, out)
+    return out
 
 SCROLL_STEP = 100
 
@@ -81,6 +103,7 @@ class Browser:
         self.history = []
         self.scrolly = 0
         self.maxh = 0
+        self.timer=Timer()
 
     def go_back(self, e):
         if len(self.history) < 2:
@@ -106,7 +129,9 @@ class Browser:
     def browse(self, url, s_type=None, post=None):
         try:
             host, port, path, fragment = parse_url(url)
+            self.timer.start("Downloading")
             headers, body = request('GET', host, port, path)
+            self.timer.stop()
         except AssertionError:
             return
         self.headers = headers
@@ -117,25 +142,75 @@ class Browser:
         self.parse()
 
     def parse(self):
+        self.timer.start("HTML")
         self.text = lex(self.body)
+        self.timer.stop()
         self.nodes = parse(self.text)
+        self.timer.start("Parse CSS")
         self.rules = parse_css(DEFAULT_STYLE)
+        self.timer.stop()
         self.rules.sort(key=lambda x: x[0].score())
+        self.timer.start("JS")
+        self.js = dukpy.JSInterpreter()
+        self.js_handles = dict()
+        
+        # Registration
+        self.js.export_function("log", print)
+        self.js.export_function("querySelectorAll", self.js_querySelectorAll)
+
+        # Run runtime
+        self.js.evaljs(DEFAULT_JS)
+        
+        for script in find_scripts(self.nodes, []):
+            lhost, lport, lpath, lfragment = parse_url(relative_url(script, self.history[-1]))
+            header, body = request('GET', lhost, lport, lpath)
+            self.js.evaljs(body)
+        self.timer.stop()
         self.relayout()
 
+    def js_querySelectorAll(self,sel):
+        selector, _ = css_selector(sel + "{", 0)
+        elts = find_selected(self.nodes, selector, [])
+        out = []
+        for elt in elts:
+            if not elt.handle:
+                handle = len(self.js_handles) + 1
+                elt.handle = handle
+                self.js_handles[handle] = elt
+            out.append(handle)
+        return out
+
+    def js_getAttribute(self, handle, attr):
+        elt = self.js_handles[handle]
+        return elt.attributes.get(attr, None)
+    
     def relayout(self):
+        self.timer.start("Style")
         style(self.nodes, self.rules)
+        self.timer.stop()
+
         self.page = Page()
         self.layout = BlockLayout(self.page, self.nodes)
-        self.layout.layout(0)
-        self.max_h = self.layout.height()
+        self.timer.start("Layout1")
+        self.layout.layout1()
+        self.timer.stop()
+        self.timer.start("Layout2")
+        self.layout.layout2(0)
+        self.timer.stop()
+        self.maxh = self.layout.height()
+        self.timer.start("Display list")
         self.display_list = self.layout.display_list()
+        self.timer.stop()
         self.render()
 
     def render(self):
+        self.timer.start("Render")
         self.canvas.delete("all")
         for cmd in self.display_list:
+            if cmd.y2 - self.scrolly < 0: continue
+            if cmd.y2 - self.scrolly > 600: continue
             cmd.draw(self.scrolly, self.canvas)
+        self.timer.stop()
 
     def scrolldown(self, e):
         self.scrolly = min(self.scrolly + SCROLL_STEP, 13 + self.maxh - 600)

@@ -2,6 +2,11 @@ import tkinter
 import tkinter.font
 from html import TextNode, ElementNode
 from graphics import DrawText, DrawRect
+from timing import Timer
+
+METRIC_CACHE = dict()
+GAP_CACHE = dict()
+
 def px(something):
     #ROBUST
     try:
@@ -22,46 +27,82 @@ def is_checked(node):
 class BlockLayout:
     def __init__(self, parent, node):
         self.parent = parent
-        self.children = []
-        parent.children.append(self)
         self.mt = px(node.style.get("margin-top", "0px"))
-        self.mr = px(node.style.get("margin-right", "0px"))
         self.mb = px(node.style.get("margin-bottom", "0px"))
-        self.ml = px(node.style.get("margin-left", "0px"))
-
-        self.bt = px(node.style.get("border-top-width", "0px"))
-        self.br = px(node.style.get("border-right-width", "0px"))
-        self.bb = px(node.style.get("border-bottom-width", "0px"))
-        self.bl = px(node.style.get("border-left-width", "0px"))
-
-        self.pt = px(node.style.get("padding-top", "0px"))
-        self.pr = px(node.style.get("padding-right", "0px"))
-        self.pb = px(node.style.get("padding-bottom", "0px"))
-        self.pl = px(node.style.get("padding-left", "0px"))
         self.x = parent.content_left()
-        self.w = parent.content_width()
         self.h = None
         self.node = node
+        self.timer = Timer()
+        
+    # def layout1(self):
+    #     y = 0
+    #     self.y = y
+    #     self.x += self.ml
+    #     self.w -= self.ml + self.mr
 
-    def layout(self, y):
-        self.y = y
+    #     y = self.y + self.bt + self.pt
+    #     if any(is_inline(child) for child in self.node.children):
+    #         layout = InlineLayout(self, self.node)
+    #         layout.layout()
+    #         y += layout.height()
+    #     else:
+    #         for child in self.node.children:
+    #             if isinstance(child, TextNode) and child.text.isspace(): continue
+    #             layout = BlockLayout(self, child)
+    #             y += layout.mt
+    #             layout.layout(y)
+    #             y += layout.height() + layout.mb
+    #     y += self.pb + self.bb
+    #     self.h = y - self.y
+
+    def layout1(self):
+        self.children = []
+        self.parent.children.append(self)
+        self.mt = px(self.node.style.get("margin-top", "0px"))
+        self.mr = px(self.node.style.get("margin-right", "0px"))
+        self.mb = px(self.node.style.get("margin-bottom", "0px"))
+        self.ml = px(self.node.style.get("margin-left", "0px"))
+        
+        self.bt = px(self.node.style.get("border-top-width", "0px"))
+        self.br = px(self.node.style.get("border-right-width", "0px"))
+        self.bb = px(self.node.style.get("border-bottom-width", "0px"))
+        self.bl = px(self.node.style.get("border-left-width", "0px"))
+        
+        self.pt = px(self.node.style.get("padding-top", "0px"))
+        self.pr = px(self.node.style.get("padding-right", "0px"))
+        self.pb = px(self.node.style.get("padding-bottom", "0px"))
+        self.pl = px(self.node.style.get("padding-left", "0px"))
+        self.w = self.parent.content_width()
+        
+        y = 0
+        self.y = 0
         self.x += self.ml
         self.w -= self.ml + self.mr
 
         y = self.y + self.bt + self.pt
         if any(is_inline(child) for child in self.node.children):
             layout = InlineLayout(self, self.node)
-            layout.layout()
+            layout.layout1()
             y += layout.height()
         else:
             for child in self.node.children:
                 if isinstance(child, TextNode) and child.text.isspace(): continue
                 layout = BlockLayout(self, child)
                 y += layout.mt
-                layout.layout(y)
+                layout.layout1()
                 y += layout.height() + layout.mb
         y += self.pb + self.bb
         self.h = y - self.y
+        
+    def layout2(self,y):
+        self.x = self.parent.content_left()
+        self.y = y
+        self.x += self.ml
+        self.y += self.mt
+        y = self.y
+        for child in self.children:
+            child.layout2(y)
+            y += child.h + (child.mt + child.mb if isinstance(child, BlockLayout) else 0)
 
     def height(self):
         return self.h
@@ -86,22 +127,26 @@ class BlockLayout:
 class LineLayout:
     def __init__(self, parent):
         self.parent = parent
-        self.children = []
         parent.children.append(self)
         self.w = 0
+        self.children = []
 
-    def layout(self, y):
+    def layout1(self):
+        self.h = 0
+        leading = 2
+        for child in self.children:
+            self.h = max(self.h, child.h + leading)
+
+    def layout2(self, y):
         self.y = y
         self.x = self.parent.x
-        self.h = 0
 
         x = self.x
         leading = 2
         y += leading / 2
         for child in self.children:
-            child.layout(x, y)
+            child.layout2(x, y)
             x += child.w + child.space
-            self.h = max(self.h, child.h + leading)
         self.w = x - self.x
 
     def height(self):
@@ -118,6 +163,43 @@ class TextLayout:
         self.children = []
         self.node = node
         self.text = text
+        self.space = 0
+        self.bold = node.style["font-weight"] == "bold"
+        self.italic = node.style["font-style"] == "italic"
+        self.color = node.style["color"]
+        self.font = tkinter.font.Font(
+            family="Times", size=16,
+            weight="bold" if self.bold else "normal",
+            slant="italic" if self.italic else "roman"
+        )
+        key = (self.bold, self.italic)
+        if key in METRIC_CACHE.keys():
+            self.h = METRIC_CACHE[key]
+        else:
+            self.h = self.font.metrics('linespace')
+            METRIC_CACHE[key] = self.h
+        self.w = self.font.measure(text)
+
+
+    def height(self):
+        assert(len(self.children) == 0)
+        return self.h
+    
+    def add_space(self):
+        if (self.bold, self.italic) in GAP_CACHE.keys():
+            gap = GAP_CACHE[(self.bold, self.italic)]
+        else:
+            gap = self.font.measure(" ")
+            GAP_CACHE[(self.bold, self.italic)] = gap
+        self.space = gap
+        self.parent.w += gap
+            
+    def attach(self, parent):
+        self.parent = parent
+        parent.children.append(self)
+        parent.w += self.w
+        
+    def layout1(self):
         bold = node.style["font-weight"] == "bold"
         italic = node.style["font-style"] == "italic"
         self.color = node.style["color"]
@@ -128,24 +210,8 @@ class TextLayout:
         )
         self.w = self.font.measure(text)
         self.h = self.font.metrics('linespace')
-        self.space = 0
 
-    def height(self):
-        assert(len(self.children) == 0)
-        return self.h
-    
-    def add_space(self):
-        if self.space == 0:
-            gap = self.font.measure(" ")
-            self.space = gap
-            self.parent.w += gap
-            
-    def attach(self, parent):
-        self.parent = parent
-        parent.children.append(self)
-        parent.w += self.w
-        
-    def layout(self, x, y):
+    def layout2(self, x, y):
         self.x = x
         self.y = y
         
@@ -204,16 +270,36 @@ class InlineLayout:
             if i != len(words) - 1 or node.text[-1].isspace():
                 tl.add_space()
 
-    def layout(self):
-        self.x = self.parent.content_left()
-        self.y = self.parent.content_top()
+
+    def layout1(self):
+        self.children = []
+        LineLayout(self)
         self.w = self.parent.content_width()
         self.recurse(self.node)
+        h = 0
+        for child in self.children:
+            child.layout1()
+            h += child.h
+        self.h = h
+        
+    def layout2(self, y):
+        self.x = self.parent.content_left()
+        self.y = self.parent.content_top()
         y = self.y
         for child in self.children:
-            child.layout(y)
+            child.layout2(y)
             y += child.h
-        self.h = y - self.y
+
+    # def layout(self):
+    #     self.x = self.parent.content_left()
+    #     self.y = self.parent.content_top()
+    #     self.w = self.parent.content_width()
+    #     self.recurse(self.node)
+    #     y = self.y
+    #     for child in self.children:
+    #         child.layout(y)
+    #         y += child.h
+    #     self.h = y - self.y
 
     def display_list(self):
         dl = []
@@ -237,18 +323,24 @@ class InputLayout:
         self.space = 0
         self.multiline = multiline
         # EX 1
+
+    def layout1(self):
+        self.child_layout = []
         if is_checkbox(self.node):
             self.w = 20
         else:
             self.w = 200
         self.h = 60 if self.multiline else 20
-
-    def layout(self, x, y):
-        self.x = x
-        self.y = y
         for child in self.node.children:
             layout = InlineLayout(self, child)
-            layout.layout()
+            self.child_layout.append(layout)
+            layout.layout1()
+            
+    def layout2(self, x, y):
+        self.x = x
+        self.y = y
+        for child in self.child_layout:
+            child.layout2()
 
     def attach(self, parent):
 	    self.parent = parent

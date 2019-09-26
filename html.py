@@ -8,6 +8,7 @@ class Text:
 
 class ElementNode:
     def __init__(self, parent, tagname):
+        self.handle=None
         self.tag, *attrs = tagname.split(" ")
         self.children = []
         self.attributes = {}
