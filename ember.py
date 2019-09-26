@@ -204,13 +204,13 @@ class Browser:
         self.render()
 
     def render(self):
-        self.timer.start("Render")
+        #self.timer.start("Render")
         self.canvas.delete("all")
         for cmd in self.display_list:
             if cmd.y2 - self.scrolly < 0: continue
             if cmd.y2 - self.scrolly > 600: continue
             cmd.draw(self.scrolly, self.canvas)
-        self.timer.stop()
+        #self.timer.stop()
 
     def scrolldown(self, e):
         self.scrolly = min(self.scrolly + SCROLL_STEP, 13 + self.maxh - 600)

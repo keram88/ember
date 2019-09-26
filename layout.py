@@ -216,7 +216,7 @@ class TextLayout:
         self.y = y
         
     def display_list(self):
-        return [DrawText(self.x, self.y, self.text, self.font, self.color)]
+        return [DrawText(self.x, self.y, self.text, self.font, self.color, self.h)]
     
 class InlineLayout:
     def __init__(self, block, node):
