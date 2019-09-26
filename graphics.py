@@ -2,6 +2,8 @@ class DrawText:
     def __init__(self, x, y, text, font, color):
         self.x = x
         self.y = y
+        self.y1 = y
+        self.y2 = y + 50
         self.text = text
         self.font = font
         self.color = color
