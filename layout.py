@@ -172,13 +172,13 @@ class TextLayout:
             weight="bold" if self.bold else "normal",
             slant="italic" if self.italic else "roman"
         )
-        key = (self.bold, self.italic)
+        key = (self.bold, self.italic, text)
         if key in METRIC_CACHE.keys():
-            self.h = METRIC_CACHE[key]
+            self.h, self.w = METRIC_CACHE[key]
         else:
             self.h = self.font.metrics('linespace')
-            METRIC_CACHE[key] = self.h
-        self.w = self.font.measure(text)
+            self.w = self.font.measure(text)
+            METRIC_CACHE[key] = (self.h, self.w)
 
 
     def height(self):

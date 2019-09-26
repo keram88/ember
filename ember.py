@@ -138,7 +138,7 @@ class Browser:
         self.body = body
         self.url = url
         self.history.append((url, s_type, post))
-
+        self.scrolly = 0
         self.parse()
 
     def parse(self):
@@ -207,8 +207,8 @@ class Browser:
         #self.timer.start("Render")
         self.canvas.delete("all")
         for cmd in self.display_list:
-            if cmd.y2 - self.scrolly < 0: continue
-            if cmd.y2 - self.scrolly > 600: continue
+            if cmd.y2 - self.scrolly < -20: continue
+            if cmd.y2 - self.scrolly > 600 + 20: continue
             cmd.draw(self.scrolly, self.canvas)
         #self.timer.stop()
 
